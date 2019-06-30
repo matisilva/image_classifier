@@ -14,5 +14,5 @@ python classification.py 1
 
 Test with
 ```python
-python classification.py 1
+python classification.py
 ```
