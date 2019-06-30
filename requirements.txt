@@ -1,0 +1,5 @@
+numpy
+pillow==5.4.1
+torch
+keras
+tensorflow

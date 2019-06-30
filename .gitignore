@@ -1,0 +1,6 @@
+.Python
+.DS_Store
+.env
+model.json
+test/
+train/
