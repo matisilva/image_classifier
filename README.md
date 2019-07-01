@@ -9,10 +9,10 @@ NN arch used here:
 Training with
 
 ```python
-python classification.py 1
+python classification.py
 ```
 
 Test with
 ```python
-python classification.py
+python classification.py <weights.hdf5>
 ```
