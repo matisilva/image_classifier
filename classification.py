@@ -1,23 +1,29 @@
+import cv2
+import numpy as np
+import sys
+import random
+import os
+import tqdm
+from PIL import ImageFile
+from sklearn.metrics import classification_report
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential, model_from_json, Model
+from tensorflow.keras.models import Sequential, model_from_json
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
 from tensorflow.python.keras.applications import ResNet50
 from tensorflow.keras import backend as K
-from sklearn.metrics import balanced_accuracy_score
-import tensorflow as tf
-import cv2
-import numpy as np
-import sys
-from PIL import ImageFile
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications.resnet50 import preprocess_input
 
 # TODO fix this constants
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 img_width, img_height = 224, 224
 CATEGORIES = range(16)
-checkpoint_path = "./weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
-resnet_weights_path = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+CHECKPOINT_DIR = './checkpoints/'
+checkpoint_path = os.path.join(CHECKPOINT_DIR,
+                               "weights-{epoch:02d}-{val_acc:.2f}.hdf5")
 
 # TODO get this numbers automatically
 nb_validation_samples = 1147
@@ -61,24 +67,10 @@ def train(arch_file="model.json", weights_file='model.h5',
         model = Sequential()
         model.add(ResNet50(include_top=False,
                            pooling='avg',
-                           weights='imagenet')) # resnet_weights_path))
+                           weights='imagenet'))
         model.add(Dense(len(CATEGORIES), activation='softmax'))
-        #model.layers[0].trainable = False
-        print(model.layers)
-        print(len(model.layers))
+        # model.layers[0].trainable = False
         for layer in model.layers[:-1]:
-            layer.trainable = False
-
-    if arch == 'resnet_santi':
-        base_model = ResNet50(include_top=False,
-                           pooling='avg',
-                           weights=resnet_weights_path)
-        x = base_model.output
-        x = Flatten()(x)
-        predictions = Dense(len(CATEGORIES), activation='softmax')(x)
-        model = Model(inputs=base_model.input, outputs=predictions)
-        # Freeze layers of base model
-        for layer in base_model.layers:
             layer.trainable = False
 
     model.compile(loss='categorical_crossentropy',
@@ -138,79 +130,97 @@ def train(arch_file="model.json", weights_file='model.h5',
 
 
 def preprocess_img(img_path):
-    img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-    #img = cv2.imread(img_path)
-    img = img / 255.
-    img = cv2.resize(img, (img_width, img_height))
-    if K.image_data_format() == 'channels_first':
-        img = np.reshape(img, [1, 3, img_width, img_height])
-    else:
-        img = np.reshape(img, [1, img_width, img_height, 3])
+    img_path = 'elephant.jpg'
+    img = image.load_img(img_path, target_size=(224, 224))
+    img = image.img_to_array(img)
+    img = np.expand_dims(img, axis=0)
+    img = preprocess_input(img)
     return img
+    # img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+    # #img = cv2.imread(img_path)
+    # img = img / 255.
+    # img = cv2.resize(img, (img_width, img_height))
+    # if K.image_data_format() == 'channels_first':
+    #     img = np.reshape(img, [1, 3, img_width, img_height])
+    # else:
+    #     img = np.reshape(img, [1, img_width, img_height, 3])
+    # return img
 
 
-def test(arch_file='model.json', weights_file='model.h5'):
+def test(arch_file='model.json', weights_file='model.h5', test_dir='test'):
     with open(arch_file, 'r') as json_file:
         loaded_model_json = json_file.read()
     loaded_model = model_from_json(loaded_model_json)
     loaded_model.load_weights(weights_file)
-    import random
-    import os
-    hits = 0
-    total = 0
-    for _class in os.listdir('test'):
-        try:
-            files = os.listdir(os.path.join('test', _class))
-        except NotADirectoryError:
-            continue
-        for _ in range(10):
-            file = random.choice(files)
-            print("trying with ", os.path.join('test', _class, file))
-            img = preprocess_img(os.path.join('test', _class, file))
-            _probs = loaded_model.predict_proba(img)
-            _predicted_class = loaded_model.predict_classes(img)
-            print(_class, _predicted_class[0])
-            if int(_class) == int(_predicted_class[0]):
-                hits += 1
-            total += 1
-    return hits / total
-
-
-def test_santi(arch_file='model.json', weights_file='model.h5'):
-    with open(arch_file, 'r') as json_file:
-        loaded_model_json = json_file.read()
-    loaded_model = model_from_json(loaded_model_json)
-    loaded_model.load_weights(weights_file)
-    import random
-    import os
-    from sklearn.metrics import classification_report
-    import tqdm
-    hits = 0
-    total = 0
     y_true = []
     y_pred = []
-    for _class in tqdm.tqdm(os.listdir('test')):
+    for _class in tqdm.tqdm(os.listdir(test_dir)):
         if _class == '.gitkeep':
             continue
-        try:
-            files = os.listdir(os.path.join('test', _class))
-        except NotADirectoryError:
-            continue
-        random.shuffle(files)
-        files = files[:10]
-        for file_ in files:
-            img = preprocess_img(os.path.join('test', _class, file_))
+        files = os.listdir(os.path.join(test_dir, _class))
+        for _file in files:
+            img = preprocess_img(os.path.join(test_dir, _class, _file))
             _predicted_class = loaded_model.predict_classes(img)
             y_true.append(int(_class))
             y_pred.append(_predicted_class[0])
     report = classification_report(y_true, y_pred)
     return report
 
+
+def get_random_sample_from_dataset(dataset_dir='train', output_dir='sample'):
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    for _class in os.listdir(dataset_dir):
+        if not os.path.isdir(os.path.join(dataset_dir, _class)):
+            continue
+        files = os.listdir(os.path.join(dataset_dir, _class))
+        dest_folder = os.path.join(output_dir, _class)
+        if not os.path.exists(dest_folder):
+            os.mkdir(dest_folder)
+        for _ in range(10):
+            from_file = os.path.join(dataset_dir, _class, random.choice(files))
+            to_file = os.path.join(output_dir, _class, random.choice(files))
+            print("Adding {}".format(from_file))
+            os.system('cp {} {}'.format(from_file, to_file))
+
+
+# def test_santi(arch_file='model.json', weights_file='model.h5'):
+#     with open(arch_file, 'r') as json_file:
+#         loaded_model_json = json_file.read()
+#     loaded_model = model_from_json(loaded_model_json)
+#     loaded_model.load_weights(weights_file)
+#     y_true = []
+#     y_pred = []
+#     for _class in tqdm.tqdm(os.listdir('test')):
+#         if _class == '.gitkeep':
+#             continue
+#         files = os.listdir(os.path.join('test', _class))
+#         random.shuffle(files)
+#         files = files[:10]
+#         for file_ in files:
+#             img = preprocess_img(os.path.join('test', _class, file_))
+#             _predicted_class = loaded_model.predict_classes(img)
+#             y_true.append(int(_class))
+#             y_pred.append(_predicted_class[0])
+#     report = classification_report(y_true, y_pred)
+#     return report
+
+
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        print("TEST")
-        print(test_santi(weights_file=sys.argv[1]))
-    else:
+    if len(sys.argv) < 1:
+        print("BAD ARGS")
+    if sys.argv[1] == 'train':
         print("TRAIN")
-        with tf.device('/device:XLA_GPU:0'):
+        gpu_devs = os.getenv('CUDA_VISIBLE_DEVICES', None)
+        if gpu_devs:
+            import tensorflow as tf
+            with tf.device('/device:XLA_GPU:0'):
+                print(train())
+        else:
             print(train())
+    if sys.argv[1] == 'test':
+        print("TEST")
+        print(test(weights_file=sys.argv[2]))
+    if sys.argv[1] == 'make_sample':
+        print("MAKING NEW SAMPLE")
+        get_random_sample_from_dataset()
