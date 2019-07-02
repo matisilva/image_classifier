@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import sys
 import random
@@ -6,15 +5,15 @@ import os
 import tqdm
 from PIL import ImageFile
 from sklearn.metrics import classification_report
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential, model_from_json
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
-from tensorflow.keras.layers import Conv2D, MaxPooling2D
-from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
-from tensorflow.python.keras.applications import ResNet50
-from tensorflow.keras import backend as K
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.resnet50 import preprocess_input
+from keras.layers.core import Dense, Flatten, Dropout
+from keras.layers.normalization import BatchNormalization
+from keras.models import Model
+from keras.applications.resnet50 import ResNet50, preprocess_input
+from keras.preprocessing.image import ImageDataGenerator
+from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.preprocessing import image
+from keras.models import model_from_json
+
 
 # TODO fix this constants
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -26,6 +25,7 @@ checkpoint_path = os.path.join(CHECKPOINT_DIR,
                                "weights-{epoch:02d}-{val_acc:.2f}.hdf5")
 
 # TODO get this numbers automatically
+resnet_weights = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
 nb_validation_samples = 1147
 nb_train_samples = 13650
 
@@ -35,43 +35,59 @@ def train(arch_file="model.json", weights_file='model.h5',
           arch='resnet', epochs=100, batch_size=16,
           tb_callback=True, checkpoints=True):
 
-    # Define shape
-    if K.image_data_format() == 'channels_first':
-        input_shape = (3, img_width, img_height)
-    else:
-        input_shape = (img_width, img_height, 3)
+    input_shape = (img_width, img_height, 3)
     shape = (img_width, img_height)
 
-    # Choose network to use
-    if arch == 'own_model':
-        model = Sequential()
-        model.add(Conv2D(32, (2, 2), input_shape=input_shape))
-        model.add(Activation('relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
+    # # Choose network to use
+    # if arch == 'own_model':
+    #     model = Sequential()
+    #     model.add(Conv2D(32, (2, 2), input_shape=input_shape))
+    #     model.add(Activation('relu'))
+    #     model.add(MaxPooling2D(pool_size=(2, 2)))
 
-        model.add(Conv2D(32, (2, 2)))
-        model.add(Activation('relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
+    #     model.add(Conv2D(32, (2, 2)))
+    #     model.add(Activation('relu'))
+    #     model.add(MaxPooling2D(pool_size=(2, 2)))
 
-        model.add(Conv2D(64, (2, 2)))
-        model.add(Activation('relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
+    #     model.add(Conv2D(64, (2, 2)))
+    #     model.add(Activation('relu'))
+    #     model.add(MaxPooling2D(pool_size=(2, 2)))
 
-        model.add(Flatten())
-        model.add(Dense(64))
-        model.add(Activation('relu'))
-        model.add(Dropout(0.5))
-        model.add(Dense(len(CATEGORIES)))
-        model.add(Activation('softmax'))
-    if arch == 'resnet':
-        model = Sequential()
-        model.add(ResNet50(include_top=False,
-                           pooling='avg',
-                           weights='imagenet'))
-        model.add(Dense(len(CATEGORIES), activation='softmax'))
-        # model.layers[0].trainable = False
-        for layer in model.layers[:-1]:
-            layer.trainable = False
+    #     model.add(Flatten())
+    #     model.add(Dense(64))
+    #     model.add(Activation('relu'))
+    #     model.add(Dropout(0.5))
+    #     model.add(Dense(len(CATEGORIES)))
+    #     model.add(Activation('softmax'))
+    # if arch == 'resnet':
+    #     model = Sequential()
+    #     model.add(ResNet50(include_top=False,
+    #                        pooling='avg',
+    #                        weights='imagenet'))
+    #     model.add(Dense(len(CATEGORIES), activation='softmax'))
+    #     # model.layers[0].trainable = False
+    #     for layer in model.layers[:-1]:
+    #         layer.trainable = False
+
+    pretrained_model = ResNet50(include_top=False,
+                                input_shape=input_shape,
+                                weights=resnet_weights)
+
+    if pretrained_model.output.shape.ndims > 2:
+        output = Flatten()(pretrained_model.output)
+    else:
+        output = pretrained_model.output
+
+    output = BatchNormalization()(output)
+    output = Dropout(0.5)(output)
+    output = Dense(128, activation='relu')(output)
+    output = BatchNormalization()(output)
+    output = Dropout(0.5)(output)
+    output = Dense(len(CATEGORIES), activation='softmax')(output)
+    model = Model(pretrained_model.input, output)
+    for layer in pretrained_model.layers:
+        layer.trainable = False
+    model.summary(line_length=200)
 
     model.compile(loss='categorical_crossentropy',
                   optimizer='adam',
@@ -84,15 +100,23 @@ def train(arch_file="model.json", weights_file='model.h5',
         json_file.write(model_json)
 
     # Data augmentation with generators
-    _train_gen = ImageDataGenerator(rescale=1. / 255,
-                                    shear_range=0.2,
-                                    zoom_range=0.2,
-                                    horizontal_flip=True)
+    _train_gen = ImageDataGenerator(rotation_range=15,
+                                    width_shift_range=.15,
+                                    height_shift_range=.15,
+                                    shear_range=0.15,
+                                    zoom_range=0.15,
+                                    channel_shift_range=1,
+                                    horizontal_flip=True,
+                                    vertical_flip=False)
 
-    _test_gen = ImageDataGenerator(rescale=1. / 255,
-                                   shear_range=0.2,
-                                   zoom_range=0.2,
-                                   horizontal_flip=True)
+    _test_gen = ImageDataGenerator(rotation_range=15,
+                                   width_shift_range=.15,
+                                   height_shift_range=.15,
+                                   shear_range=0.15,
+                                   zoom_range=0.15,
+                                   channel_shift_range=1,
+                                   horizontal_flip=True,
+                                   vertical_flip=False)
 
     train_generator = _train_gen.flow_from_directory(train_data_dir,
                                                      target_size=shape,
@@ -107,9 +131,9 @@ def train(arch_file="model.json", weights_file='model.h5',
     callbacks = []
     if tb_callback:
         tb_callback = TensorBoard(log_dir='./tb_callback',
-                                  # update_freq='batch',
+                                  histogram_freq=0,
                                   write_graph=True,
-                                  write_images=True)
+                                  write_images=False)
         callbacks.append(tb_callback)
 
     if checkpoints:
@@ -120,10 +144,11 @@ def train(arch_file="model.json", weights_file='model.h5',
                                       verbose=1)
         callbacks.append(cp_callback)
     model.fit_generator(train_generator,
-                        steps_per_epoch=nb_train_samples // batch_size,
+                        steps_per_epoch=200,
                         validation_data=val_generator,
-                        validation_steps=nb_validation_samples // batch_size,
+                        validation_steps=10,
                         epochs=epochs,
+                        workers=4,
                         callbacks=callbacks)
 
     model.save_weights(weights_file)
