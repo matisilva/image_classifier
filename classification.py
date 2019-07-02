@@ -1,10 +1,12 @@
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential, model_from_json
+from tensorflow.keras.models import Sequential, model_from_json, Model
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
 from tensorflow.python.keras.applications import ResNet50
 from tensorflow.keras import backend as K
+from sklearn.metrics import balanced_accuracy_score
+import tensorflow as tf
 import cv2
 import numpy as np
 import sys
@@ -12,9 +14,9 @@ from PIL import ImageFile
 
 # TODO fix this constants
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-img_width, img_height = 640, 480
-CATEGORIES = range(2)#range(16)
-checkpoint_path = "weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
+img_width, img_height = 224, 224
+CATEGORIES = range(16)
+checkpoint_path = "./weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
 resnet_weights_path = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
 
 # TODO get this numbers automatically
@@ -24,8 +26,8 @@ nb_train_samples = 13650
 
 def train(arch_file="model.json", weights_file='model.h5',
           train_data_dir="train", validation_data_dir="test",
-          arch='own_model', epochs=10, batch_size=8,
-          tb_callback=False, checkpoints=True):
+          arch='resnet', epochs=100, batch_size=16,
+          tb_callback=True, checkpoints=True):
 
     # Define shape
     if K.image_data_format() == 'channels_first':
@@ -59,12 +61,29 @@ def train(arch_file="model.json", weights_file='model.h5',
         model = Sequential()
         model.add(ResNet50(include_top=False,
                            pooling='avg',
-                           weights=resnet_weights_path))
+                           weights='imagenet')) # resnet_weights_path))
         model.add(Dense(len(CATEGORIES), activation='softmax'))
-        model.layers[0].trainable = False
+        #model.layers[0].trainable = False
+        print(model.layers)
+        print(len(model.layers))
+        for layer in model.layers[:-1]:
+            layer.trainable = False
+
+    if arch == 'resnet_santi':
+        base_model = ResNet50(include_top=False,
+                           pooling='avg',
+                           weights=resnet_weights_path)
+        x = base_model.output
+        x = Flatten()(x)
+        predictions = Dense(len(CATEGORIES), activation='softmax')(x)
+        model = Model(inputs=base_model.input, outputs=predictions)
+        # Freeze layers of base model
+        for layer in base_model.layers:
+            layer.trainable = False
 
     model.compile(loss='categorical_crossentropy',
                   optimizer='adam',
+                  weighted_metrics=['accuracy'],
                   metrics=['accuracy'])
 
     # Save model arch to json
@@ -96,7 +115,7 @@ def train(arch_file="model.json", weights_file='model.h5',
     callbacks = []
     if tb_callback:
         tb_callback = TensorBoard(log_dir='./tb_callback',
-                                  update_freq='batch',
+                                  # update_freq='batch',
                                   write_graph=True,
                                   write_images=True)
         callbacks.append(tb_callback)
@@ -108,7 +127,6 @@ def train(arch_file="model.json", weights_file='model.h5',
                                       save_best_only=True,
                                       verbose=1)
         callbacks.append(cp_callback)
-
     model.fit_generator(train_generator,
                         steps_per_epoch=nb_train_samples // batch_size,
                         validation_data=val_generator,
@@ -120,10 +138,14 @@ def train(arch_file="model.json", weights_file='model.h5',
 
 
 def preprocess_img(img_path):
-    img = cv2.imread(img_path)
+    img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+    #img = cv2.imread(img_path)
     img = img / 255.
     img = cv2.resize(img, (img_width, img_height))
-    img = np.reshape(img, [1, img_width, img_height, 3])
+    if K.image_data_format() == 'channels_first':
+        img = np.reshape(img, [1, 3, img_width, img_height])
+    else:
+        img = np.reshape(img, [1, img_width, img_height, 3])
     return img
 
 
@@ -132,16 +154,63 @@ def test(arch_file='model.json', weights_file='model.h5'):
         loaded_model_json = json_file.read()
     loaded_model = model_from_json(loaded_model_json)
     loaded_model.load_weights(weights_file)
-    img = preprocess_img('test.jpg')
-    _probs = loaded_model.predict_proba(img)
-    _class = loaded_model.predict_classes(img)
-    return _probs, _class
+    import random
+    import os
+    hits = 0
+    total = 0
+    for _class in os.listdir('test'):
+        try:
+            files = os.listdir(os.path.join('test', _class))
+        except NotADirectoryError:
+            continue
+        for _ in range(10):
+            file = random.choice(files)
+            print("trying with ", os.path.join('test', _class, file))
+            img = preprocess_img(os.path.join('test', _class, file))
+            _probs = loaded_model.predict_proba(img)
+            _predicted_class = loaded_model.predict_classes(img)
+            print(_class, _predicted_class[0])
+            if int(_class) == int(_predicted_class[0]):
+                hits += 1
+            total += 1
+    return hits / total
 
+
+def test_santi(arch_file='model.json', weights_file='model.h5'):
+    with open(arch_file, 'r') as json_file:
+        loaded_model_json = json_file.read()
+    loaded_model = model_from_json(loaded_model_json)
+    loaded_model.load_weights(weights_file)
+    import random
+    import os
+    from sklearn.metrics import classification_report
+    import tqdm
+    hits = 0
+    total = 0
+    y_true = []
+    y_pred = []
+    for _class in tqdm.tqdm(os.listdir('test')):
+        if _class == '.gitkeep':
+            continue
+        try:
+            files = os.listdir(os.path.join('test', _class))
+        except NotADirectoryError:
+            continue
+        random.shuffle(files)
+        files = files[:10]
+        for file_ in files:
+            img = preprocess_img(os.path.join('test', _class, file_))
+            _predicted_class = loaded_model.predict_classes(img)
+            y_true.append(int(_class))
+            y_pred.append(_predicted_class[0])
+    report = classification_report(y_true, y_pred)
+    return report
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        print("TRAIN")
-        print(train())
-    else:
         print("TEST")
-        print(test())
+        print(test_santi(weights_file=sys.argv[1]))
+    else:
+        print("TRAIN")
+        with tf.device('/device:XLA_GPU:0'):
+            print(train())

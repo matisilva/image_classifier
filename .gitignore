@@ -4,3 +4,7 @@
 model.json
 test/
 train/
+weights*
+tb_callback
+*.h5
+*.hdf5

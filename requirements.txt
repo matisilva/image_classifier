@@ -3,3 +3,4 @@ pillow==5.4.1
 torch
 keras
 tensorflow
+opencv-python-4.1.0.25
