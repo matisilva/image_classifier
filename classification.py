@@ -32,7 +32,7 @@ nb_train_samples = 13650
 
 def train(arch_file="model.json", weights_file='model.h5',
           train_data_dir="train", validation_data_dir="test",
-          arch='resnet', epochs=100, batch_size=16,
+          arch='resnet', epochs=500, batch_size=16,
           tb_callback=True, checkpoints=True):
 
     input_shape = (img_width, img_height, 3)
@@ -71,7 +71,7 @@ def train(arch_file="model.json", weights_file='model.h5',
 
     pretrained_model = ResNet50(include_top=False,
                                 input_shape=input_shape,
-                                weights=resnet_weights)
+                                weights='imagenet') # resnet_weights)
 
     if pretrained_model.output.shape.ndims > 2:
         output = Flatten()(pretrained_model.output)
@@ -100,7 +100,8 @@ def train(arch_file="model.json", weights_file='model.h5',
         json_file.write(model_json)
 
     # Data augmentation with generators
-    _train_gen = ImageDataGenerator(rotation_range=15,
+    _train_gen = ImageDataGenerator(preprocessing_function=preprocess_input,
+                                    rotation_range=15,
                                     width_shift_range=.15,
                                     height_shift_range=.15,
                                     shear_range=0.15,
@@ -109,7 +110,8 @@ def train(arch_file="model.json", weights_file='model.h5',
                                     horizontal_flip=True,
                                     vertical_flip=False)
 
-    _test_gen = ImageDataGenerator(rotation_range=15,
+    _test_gen = ImageDataGenerator(preprocessing_function=preprocess_input,
+                                   rotation_range=15,
                                    width_shift_range=.15,
                                    height_shift_range=.15,
                                    shear_range=0.15,
@@ -144,9 +146,9 @@ def train(arch_file="model.json", weights_file='model.h5',
                                       verbose=1)
         callbacks.append(cp_callback)
     model.fit_generator(train_generator,
-                        steps_per_epoch=200,
+                        steps_per_epoch=500,
                         validation_data=val_generator,
-                        validation_steps=10,
+                        validation_steps=75,
                         epochs=epochs,
                         workers=4,
                         callbacks=callbacks)
@@ -155,7 +157,7 @@ def train(arch_file="model.json", weights_file='model.h5',
 
 
 def preprocess_img(img_path):
-    img_path = 'elephant.jpg'
+    img_path = img_path
     img = image.load_img(img_path, target_size=(224, 224))
     img = image.img_to_array(img)
     img = np.expand_dims(img, axis=0)
@@ -185,9 +187,10 @@ def test(arch_file='model.json', weights_file='model.h5', test_dir='test'):
         files = os.listdir(os.path.join(test_dir, _class))
         for _file in files:
             img = preprocess_img(os.path.join(test_dir, _class, _file))
-            _predicted_class = loaded_model.predict_classes(img)
+            _predicted_class = np.argmax(loaded_model.predict(img))
+            print(_class, int(_predicted_class))
             y_true.append(int(_class))
-            y_pred.append(_predicted_class[0])
+            y_pred.append(int(_predicted_class))
     report = classification_report(y_true, y_pred)
     return report
 
@@ -237,7 +240,7 @@ if __name__ == '__main__':
     if sys.argv[1] == 'train':
         print("TRAIN")
         gpu_devs = os.getenv('CUDA_VISIBLE_DEVICES', None)
-        if gpu_devs:
+        if False:
             import tensorflow as tf
             with tf.device('/device:XLA_GPU:0'):
                 print(train())
