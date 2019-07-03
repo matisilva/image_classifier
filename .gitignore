@@ -8,3 +8,5 @@ weights*
 tb_callback
 *.h5
 *.hdf5
+google-scrape/downloads
+google-scrape/chromedriver
