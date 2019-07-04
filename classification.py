@@ -44,12 +44,12 @@ def train(arch_file="model.json", weights_file='model.h5',
 
     # # Choose network to use
     if arch == 'resnet':
-        from keras.applications.resnet50 import ResNet50, preprocess_input
+        from keras.applications.resnet50 import ResNet50
         pretrained_model = ResNet50(include_top=False,
                                     input_shape=input_shape,
                                     weights='imagenet')  # resnet_weights)
     if arch == 'nasnet':
-        from keras.applications.nasnet import NASNetLarge, preprocess_input
+        from keras.applications.nasnet import NASNetLarge
         pretrained_model = NASNetLarge(input_shape=None,
                                        include_top=True,
                                        weights='imagenet',
@@ -177,10 +177,15 @@ def preprocess_img(img_path):
     # return img
 
 
-def test(arch_file='model.json', weights_file='model.h5', test_dir='sample'):
+def test(arch_file='model.json', weights_file='model.h5', test_dir='sample',
+         arch='resnet'):  #  TODO ARCH DEFINED BY ARCH FILE
     with open(arch_file, 'r') as json_file:
         loaded_model_json = json_file.read()
     loaded_model = model_from_json(loaded_model_json)
+    if arch == 'nesnet':
+        from keras.applications.nasnet import preprocess_input
+    else:
+        from keras.applications.resnet50 import preprocess_input
     loaded_model.load_weights(weights_file)
     y_true = []
     y_pred = []
