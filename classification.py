@@ -4,7 +4,7 @@ import random
 import os
 import tqdm
 from PIL import ImageFile
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, balanced_accuracy_score, confusion_matrix
 from keras.layers.core import Dense, Flatten, Dropout
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
@@ -13,6 +13,10 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import ModelCheckpoint, TensorBoard
 from keras.preprocessing import image
 from keras.models import model_from_json
+from keras.callbacks import LearningRateScheduler
+
+from layer_rotation_control import Adam
+from layer_rotation_monitoring import LayerRotationCurves
 
 
 # TODO fix this constants
@@ -31,7 +35,7 @@ nb_train_samples = 13650
 
 
 def train(arch_file="model.json", weights_file='model.h5',
-          train_data_dir="train", validation_data_dir="test",
+          train_data_dir="train", validation_data_dir="sample",
           arch='resnet', epochs=500, batch_size=16,
           tb_callback=True, checkpoints=True):
 
@@ -80,7 +84,7 @@ def train(arch_file="model.json", weights_file='model.h5',
 
     output = BatchNormalization()(output)
     output = Dropout(0.5)(output)
-    output = Dense(128, activation='relu')(output)
+    output = Dense(512, activation='relu')(output)
     output = BatchNormalization()(output)
     output = Dropout(0.5)(output)
     output = Dense(len(CATEGORIES), activation='softmax')(output)
@@ -88,9 +92,26 @@ def train(arch_file="model.json", weights_file='model.h5',
     for layer in pretrained_model.layers:
         layer.trainable = False
     model.summary(line_length=200)
+    lr=0.001
+    opt = Adam(lr, layca=True)
 
+    # a keras callback to record layer rotation
+    lrc = LayerRotationCurves()
+
+    # learning rate schedule: divide learning rate by 5 at epochs 70 and 90
+    def schedule(epoch):
+        new_lr = lr
+        if epoch > 70:
+            new_lr *= 0.2
+        if epoch >90:
+            new_lr *= 0.2
+        return new_lr
+	
+    lrs = LearningRateScheduler(schedule)
+
+    callbacks = [lrc, lrs]
     model.compile(loss='categorical_crossentropy',
-                  optimizer='adam',
+                  optimizer=opt,
                   weighted_metrics=['accuracy'],
                   metrics=['accuracy'])
 
@@ -130,7 +151,7 @@ def train(arch_file="model.json", weights_file='model.h5',
                                                   batch_size=batch_size,
                                                   class_mode='categorical')
 
-    callbacks = []
+    #callbacks = []
     if tb_callback:
         tb_callback = TensorBoard(log_dir='./tb_callback',
                                   histogram_freq=0,
@@ -154,7 +175,9 @@ def train(arch_file="model.json", weights_file='model.h5',
                         callbacks=callbacks)
 
     model.save_weights(weights_file)
-
+    # plot layer rotation curves
+    #plt.figure()
+    #lrc.plot()
 
 def preprocess_img(img_path):
     img_path = img_path
@@ -174,7 +197,7 @@ def preprocess_img(img_path):
     # return img
 
 
-def test(arch_file='model.json', weights_file='model.h5', test_dir='test'):
+def test(arch_file='model.json', weights_file='model.h5', test_dir='sample'):
     with open(arch_file, 'r') as json_file:
         loaded_model_json = json_file.read()
     loaded_model = model_from_json(loaded_model_json)
@@ -188,14 +211,17 @@ def test(arch_file='model.json', weights_file='model.h5', test_dir='test'):
         for _file in files:
             img = preprocess_img(os.path.join(test_dir, _class, _file))
             _predicted_class = np.argmax(loaded_model.predict(img))
-            print(_class, int(_predicted_class))
+            #print(int(_class), int(_predicted_class))
             y_true.append(int(_class))
             y_pred.append(int(_predicted_class))
     report = classification_report(y_true, y_pred)
+    score = balanced_accuracy_score(y_true, y_pred)
+    print('Balanced score:', score)
+    print(confusion_matrix(y_true, y_pred))
     return report
 
 
-def get_random_sample_from_dataset(dataset_dir='train', output_dir='sample'):
+def get_random_sample_from_dataset(dataset_dir='train', output_dir='sample_0.2'):
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
     for _class in os.listdir(dataset_dir):
@@ -205,11 +231,13 @@ def get_random_sample_from_dataset(dataset_dir='train', output_dir='sample'):
         dest_folder = os.path.join(output_dir, _class)
         if not os.path.exists(dest_folder):
             os.mkdir(dest_folder)
-        for _ in range(10):
-            from_file = os.path.join(dataset_dir, _class, random.choice(files))
-            to_file = os.path.join(output_dir, _class, random.choice(files))
+        random.shuffle(files)
+        files = files[:int(.2*len(files))]
+        for file in files:
+            from_file = os.path.join(dataset_dir, _class, file)
+            to_file = os.path.join(output_dir, _class, file)
             print("Adding {}".format(from_file))
-            os.system('cp {} {}'.format(from_file, to_file))
+            os.system('mv {} {}'.format(from_file, to_file))
 
 
 # def test_santi(arch_file='model.json', weights_file='model.h5'):
