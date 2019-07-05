@@ -4,7 +4,7 @@ import random
 import os
 import tqdm
 from PIL import ImageFile
-from sklearn.metrics import classification_report, balanced_accuracy_score,
+from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.metrics import confusion_matrix
 from keras.layers.core import Dense, Flatten, Dropout
 from keras.layers.normalization import BatchNormalization
@@ -36,7 +36,7 @@ nb_train_samples = 13650
 
 def train(arch_file="model.json", weights_file='model.h5',
           train_data_dir="train", validation_data_dir="sample",
-          arch='resnet', epochs=500, batch_size=16,
+          arch='nasnet', epochs=500, batch_size=16,
           tb_callback=True, checkpoints=True):
 
     input_shape = (img_width, img_height, 3)
@@ -178,11 +178,11 @@ def preprocess_img(img_path):
 
 
 def test(arch_file='model.json', weights_file='model.h5', test_dir='sample',
-         arch='resnet'):  #  TODO ARCH DEFINED BY ARCH FILE
+         arch='nasnet'):  #  TODO ARCH DEFINED BY ARCH FILE
     with open(arch_file, 'r') as json_file:
         loaded_model_json = json_file.read()
     loaded_model = model_from_json(loaded_model_json)
-    if arch == 'nesnet':
+    if arch == 'nasnet':
         from keras.applications.nasnet import preprocess_input
     else:
         from keras.applications.resnet50 import preprocess_input
