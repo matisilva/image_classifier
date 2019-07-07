@@ -4,7 +4,7 @@ import random
 import os
 import tqdm
 from PIL import ImageFile
-from sklearn.metrics import classification_report, balanced_accuracy_score,
+from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.metrics import confusion_matrix
 from keras.layers.core import Dense, Flatten, Dropout
 from keras.layers.normalization import BatchNormalization
@@ -230,12 +230,7 @@ if __name__ == '__main__':
     if sys.argv[1] == 'train':
         print("TRAIN")
         gpu_devs = os.getenv('CUDA_VISIBLE_DEVICES', None)
-        if False:
-            import tensorflow as tf
-            with tf.device('/device:XLA_GPU:0'):
-                print(train())
-        else:
-            print(train())
+        print(train())
     if sys.argv[1] == 'test':
         print("TEST")
         print(test(weights_file=sys.argv[2]))
